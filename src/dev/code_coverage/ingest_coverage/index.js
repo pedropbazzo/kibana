@@ -10,6 +10,7 @@ import { resolve } from 'path';
 import { prok } from './process';
 import { run, createFlagError, createFailError } from '@kbn/dev-utils';
 import { pathExists } from './team_assignment/enumeration_helpers';
+import { lazy, ccMark } from './utils';
 
 const ROOT = resolve(__dirname, '../../../..');
 const flags = {
@@ -29,14 +30,19 @@ export function runCoverageIngestionCli() {
       const resolveRoot = resolve.bind(null, ROOT);
       const jsonSummaryPath = resolveRoot(flags.path);
       const vcsInfoFilePath = resolveRoot(flags.vcsInfoPath);
-      const { teamAssignmentsPath } = flags;
+      const teamAssignmentsPath = resolveRoot(flags.teamAssignmentsPath);
 
-      pathExists(teamAssignmentsPath).fold(
-        () => {
-          throw createFailError(errMsg(teamAssignmentsPath));
-        },
-        () => prok({ jsonSummaryPath, vcsInfoFilePath, teamAssignmentsPath }, log)
-      );
+      pathExists(jsonSummaryPath)
+        .chain(lazy(pathExists(teamAssignmentsPath)))
+        .chain(lazy(pathExists(vcsInfoFilePath)))
+        .fold(
+          (pathNotFound) => {
+            throw createFailError(
+              errMsg(pathNotFound)(jsonSummaryPath, teamAssignmentsPath, vcsInfoFilePath)
+            );
+          },
+          () => prok({ jsonSummaryPath, vcsInfoFilePath, teamAssignmentsPath }, log)
+        );
     },
     {
       description: `
@@ -62,10 +68,12 @@ function guard(flags) {
 }
 
 function errMsg(x) {
-  return `
-  !!! [${x}] is not found!
-  !!! Maybe you should "Generate the team assignments", like this:
+  return (...inputFiles) => `
+${ccMark} ${x}
+${ccMark} Input Files: \n${JSON.stringify(inputFiles, null, 2)}
+${ccMark} If the input files you passed in exist...
+${ccMark} Maybe you should "Generate the team assignments", like this:
 
-node scripts/generate_team_assignments.js --verbose --src .github/CODEOWNERS --dest src/dev/code_coverage/ingest_coverage/team_assignment/team_assignments.txt
+${ccMark} λ> node scripts/generate_team_assignments.js --verbose --src .github/CODEOWNERS --dest src/dev/code_coverage/ingest_coverage/team_assignment/team_assignments.txt
 `;
 }

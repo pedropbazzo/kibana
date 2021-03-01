@@ -10,24 +10,35 @@ const { Client } = require('@elastic/elasticsearch');
 import { RESEARCH_CI_JOB_NAME } from './constants';
 import { whichIndex } from './ingest_helpers';
 import { fromNullable } from './either';
-import { always, id, flatMap } from './utils';
+import { lazy, id, flatMap } from './utils';
 
 const node = process.env.ES_HOST || 'http://localhost:9200';
 const client = new Client({ node });
 const isResearchJob = process.env.COVERAGE_JOB_NAME === RESEARCH_CI_JOB_NAME ? true : false;
 
 export const ingestList = (log) => async (xs) => {
-  log.verbose(`\n### Ingesting ${xs.length} docs`);
+  fromNullable(process.env.NODE_ENV).fold(bulkIngest, justLog);
 
-  const body = parseIndexes(xs);
-  const { body: bulkResponse } = await client.bulk({ refresh: true, body });
-  handleErrors(body, bulkResponse)(log);
+  async function bulkIngest() {
+    log.verbose(`\n### Ingesting ${xs.length} docs at a time`);
+
+    const body = parseIndexes(xs);
+
+    const { body: bulkResponse } = await client.bulk({ refresh: true, body });
+
+    handleErrors(body, bulkResponse)(log);
+  }
+
+  function justLog() {
+    log.verbose('\n### Just logging first item from current (buffered) bulk list');
+    log.verbose(JSON.stringify(xs[0], null, 2));
+  }
 };
 
 function handleErrors(body, bulkResponse) {
   return (log) =>
     fromNullable(bulkResponse.errors) // check errors for null
-      .map(always(body)) // if errors is not null, pass the body to printErrors
+      .map(lazy(body)) // if errors is not null, pass the body to printErrors
       .fold(id, parseErrors(log)(bulkResponse));
 }
 
