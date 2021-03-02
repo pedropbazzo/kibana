@@ -26,7 +26,7 @@ export STATIC_SITE_URL_BASE
 
 TEAM_ASSIGN_PATH=$5
 
-BUFFER_SIZE=500
+BUFFER_SIZE=1000
 export BUFFER_SIZE
 
 # Build team assignments dat file
