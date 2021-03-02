@@ -10,7 +10,7 @@ const { Client } = require('@elastic/elasticsearch');
 import { RESEARCH_CI_JOB_NAME } from './constants';
 import { whichIndex } from './ingest_helpers';
 import { fromNullable } from './either';
-import { lazy, id, flatMap } from './utils';
+import { always, id, flatMap, ccMark, lazyF } from './utils';
 
 const node = process.env.ES_HOST || 'http://localhost:9200';
 const client = new Client({ node });
@@ -20,7 +20,7 @@ export const ingestList = (log) => async (xs) => {
   fromNullable(process.env.NODE_ENV).fold(bulkIngest, justLog);
 
   async function bulkIngest() {
-    log.verbose(`\n### Ingesting ${xs.length} docs at a time`);
+    log.verbose(`\n${ccMark} Ingesting ${xs.length} docs at a time`);
 
     const body = parseIndexes(xs);
 
@@ -30,15 +30,15 @@ export const ingestList = (log) => async (xs) => {
   }
 
   function justLog() {
-    log.verbose('\n### Just logging first item from current (buffered) bulk list');
-    log.verbose(JSON.stringify(xs[0], null, 2));
+    log.verbose(`\n${ccMark} Just logging first item from current (buffered) bulk list`);
+    log.verbose(`\n${ccMark} ${JSON.stringify(xs[0], null, 2)}`);
   }
 };
 
 function handleErrors(body, bulkResponse) {
   return (log) =>
     fromNullable(bulkResponse.errors) // check errors for null
-      .map(lazy(body)) // if errors is not null, pass the body to printErrors
+      .map(always(body)) // if errors is not null, pass the body to printErrors
       .fold(id, parseErrors(log)(bulkResponse));
 }
 
@@ -61,7 +61,7 @@ function parseErrors(log) {
           operation: innerBody[i * 2],
           document: innerBody[i * 2 + 1],
         });
-        log.error(JSON.stringify(erroredDocuments, null, 2));
+        log.error(`${ccMark} ${JSON.stringify(erroredDocuments, null, 2)}`);
       }
     });
   };
@@ -74,3 +74,26 @@ function parseIndexes(xs) {
     return [{ index: { _index } }, doc];
   })(xs);
 }
+
+export const ingestHelpers$ = (log) => async (dataStream) => {
+  fromNullable(process.env.NODE_ENV).fold(lazyF(ingestStream(log)(dataStream), id));
+
+  function ingestStream(log) {
+    return async (data$) => {
+      // See: https://www.elastic.co/guide/en/elasticsearch/client/javascript-api/current/client-helpers.html
+      const result = await client.helpers.bulk({
+        datasource: data$,
+        // flushInterval: 20000,
+        // concurrency: 6,
+        onDocument: (doc) => ({
+          index: { _index: whichIndex(isResearchJob)(!!doc.isTotal) },
+        }),
+        onDrop(doc) {
+          log.error(`${ccMark} ${JSON.stringify(doc, null, 2)} was dropped`);
+        },
+      });
+
+      log.verbose(JSON.stringify(result, null, 2));
+    };
+  }
+};

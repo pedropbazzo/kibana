@@ -10,7 +10,7 @@ import { resolve } from 'path';
 import { prok } from './process';
 import { run, createFlagError, createFailError } from '@kbn/dev-utils';
 import { pathExists } from './team_assignment/enumeration_helpers';
-import { lazy, ccMark } from './utils';
+import { always, ccMark } from './utils';
 
 const ROOT = resolve(__dirname, '../../../..');
 const flags = {
@@ -33,8 +33,8 @@ export function runCoverageIngestionCli() {
       const teamAssignmentsPath = resolveRoot(flags.teamAssignmentsPath);
 
       pathExists(jsonSummaryPath)
-        .chain(lazy(pathExists(teamAssignmentsPath)))
-        .chain(lazy(pathExists(vcsInfoFilePath)))
+        .chain(always(pathExists(teamAssignmentsPath)))
+        .chain(always(pathExists(vcsInfoFilePath)))
         .fold(
           (pathNotFound) => {
             throw createFailError(
